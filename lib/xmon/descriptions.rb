@@ -1,6 +1,6 @@
 module Xmon
   class Description
-    attr_reader :parent
+    attr_reader :parent, :results
 
     def initialize
       @descriptions = []
@@ -18,16 +18,20 @@ module Xmon
       end
     end
 
+    def domain(name, &)
+      @description = DomainDescription.new(name)
+      describe(&)
+    end
+
+    def ipv4(address, &)
+      @description = IPv4Description.new(address)
+      describe(&)
+    end
+
     def describe(*args, **kwargs, &)
       unless @description
-        if kwargs[:type] == :domain
-          @description = DomainDescription.new(args[0])
-        elsif kwargs[:type] == :ipv4
-          @description = IPv4Description.new(args[0])
-        else
-          puts "unknown block given with args: #{args} and kwargs: #{kwargs}"
-          @description = Description.new
-        end
+        puts "unknown block given with args: #{args} and kwargs: #{kwargs}"
+        exit
       end
 
       if block_given?
@@ -67,13 +71,14 @@ module Xmon
       @name
     end
 
-    def describe(*args, **kwarg)
-      if args == [:rdap]
-        @description = Xmon::RDAP.new(self)
-      elsif args == [:dns]
-        @description = Xmon::DNS.new(self)
-      end
-      super
+    def rdap(&)
+      @description = Xmon::RDAP.new(self)
+      describe(&)
+    end
+
+    def dns(&)
+      @description = Xmon::DNS.new(self)
+      describe(&)
     end
   end
 
@@ -87,17 +92,19 @@ module Xmon
       @address
     end
 
-    def describe(*, **kwargs)
-      if kwargs[:type] == :tcp
-        @description = if kwargs[:protocol] == :https
-          Xmon::SSL.new(self, *, **kwargs)
-        else
-          Xmon::TCP.new(self, *, **kwargs)
-        end
-      elsif kwargs[:type] == :udp
-        @description = Xmon::UDP.new(*, **kwargs)
-      end
-      super
+    def udp(*, **, &)
+      @description = Xmon::UDP.new(self, *, **)
+      describe(&)
+    end
+
+    def tcp(*, **, &)
+      @description = Xmon::TCP.new(self, *, **)
+      describe(&)
+    end
+
+    def https(*, **, &)
+      @description = Xmon::SSL.new(self, *, **)
+      describe(&)
     end
 
     def port(...)
