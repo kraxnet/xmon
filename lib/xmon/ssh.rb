@@ -25,7 +25,6 @@ module Xmon
     end
 
     def check
-      puts "checking SSH for #{@address} #{@host} #{@port}"
       current = fetch(@address, @port)
       r = []
       r << compare(:version, @version, current[:version]) if @version

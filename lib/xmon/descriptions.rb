@@ -1,18 +1,17 @@
 module Xmon
   class Description
-    attr_reader :parent, :results
+    attr_reader :parent, :dsl_id
+
+    def path
+      [@parent ? @parent.path : nil, self.class.to_s.split("::").last, dsl_id].compact.join("/")
+    end
 
     def friendly_name
-      c = self.class.to_s.split("::").last
-      if @parent
-        [@parent.friendly_name, c].join("/")
-      else
-        c
-      end
+      [path, dsl_id].join("/")
     end
 
     def compare(name, a, b)
-      info = [friendly_name, name].join("/")
+      info = [path, name].join("/")
       if a == b
         [:ok, info, a].compact
       else
@@ -67,11 +66,9 @@ module Xmon
     end
 
     def check
-      @results = []
       (@descriptions || []).each { |d|
         puts "#{d.class} #{@name}".colorize(:yellow)
         res = d.check
-        @results << res
         Xmon::Results.add(res)
         Xmon.print_results([res])
       }
@@ -83,10 +80,7 @@ module Xmon
 
     def initialize(name, *)
       @name = name
-    end
-
-    def friendly_name
-      @name
+      @dsl_id = name
     end
 
     def rdap(&)
@@ -109,10 +103,7 @@ module Xmon
     attr_accessor :address
     def initialize(address, *)
       @address = address
-    end
-
-    def friendly_name
-      @address
+      @dsl_id = address
     end
 
     def ptr(*, **, &)

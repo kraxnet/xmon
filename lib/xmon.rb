@@ -14,35 +14,20 @@ require_relative "xmon/rdap"
 require_relative "xmon/reverse_dns"
 require_relative "xmon/whois"
 require_relative "xmon/ssh"
+require_relative "xmon/results"
 
 module Xmon
   class Error < StandardError; end
-
-  class Results
-    def self.add(result)
-      @results ||= []
-      @results << result
-    end
-
-    def self.get
-      @results.flatten(1).select { |a| a.is_a?(Array) }
-    end
-  end
 
   def self.print_results(results)
     # puts "Results: #{results.inspect}".colorize(:blue)
     results.each do |res|
       res.each do |r|
         if r.is_a?(Array)
-          friendly_name = if r[1].respond_to?(:parent)
-            [r[1].class.to_s.split("::").last, r[1].parent.friendly_name].join("/")
-          else
-            r[1].class.to_s
-          end
           if r[0] == :ok
-            puts "OK [#{friendly_name}]: #{r[2]}".colorize(:green)
+            puts "OK [#{r[1]}]: #{r[2]}".colorize(:green)
           else
-            puts "FAIL: [#{friendly_name}]: #{r[2]} != #{r[3]}".colorize(:red)
+            puts "FAIL: [#{r[1]}]: #{r[2]} != #{r[3]}".colorize(:red)
           end
         end
       end

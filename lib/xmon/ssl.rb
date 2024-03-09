@@ -3,10 +3,14 @@ module Xmon
     def initialize(parent, *args, **kwargs)
       @parent = parent
       @address = parent.address
-      @host = kwargs[:host]
-      @path = kwargs[:path] || "/"
+      @dsl_id = @port
       define_attributes([:host, :status_code, :server, :cert_sn, :location])
       super
+    end
+
+    def dsl_id
+      # [@port, @host, @path].join(":")
+      [@port, @host].join(":")
     end
 
     def fetch(host, name = nil, port = 443, path = "/")
@@ -37,7 +41,6 @@ module Xmon
     end
 
     def check
-      puts "checking SSL for #{@address} #{@host} #{@port} #{@path}"
       current = fetch(@address, @host, @port, @path)
       r = []
       r << compare(:status_code, @status_code, current[:status_code]) if @status_code

@@ -8,6 +8,7 @@ module Xmon
       @address = parent.address
       @port = args[0]
       @protocol = kwargs[:protocol]
+      @dsl_id = @port
     end
 
     def key(type, value)
@@ -39,6 +40,7 @@ module Xmon
           end
         end
       end
+      File.delete("nmap.xml") if File.exist?("nmap.xml")
       @out.flatten
     end
 
