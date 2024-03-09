@@ -37,7 +37,7 @@ module Xmon
       if block_given?
         @description.instance_eval(&)
       else
-        @description = @description.class.new(*args, **kwargs)
+        #  @description = @description.class.new(*args, **kwargs)
       end
       @descriptions ||= []
       @descriptions << @description
@@ -90,6 +90,11 @@ module Xmon
 
     def friendly_name
       @address
+    end
+
+    def ptr(*, **, &)
+      @description = Xmon::ReverseDNS.new(self, *, **)
+      describe(&)
     end
 
     def udp(*, **, &)

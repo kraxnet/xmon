@@ -15,6 +15,7 @@ domain "nic.cz" do
 end
 
 ipv4 "217.31.205.50" do
+  ptr "www.nic.cz"
   tcp 80 do
     status :open
   end
