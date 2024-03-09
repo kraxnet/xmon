@@ -2,8 +2,9 @@ require "httparty"
 
 module Xmon
   class RDAP < Description
-    def initialize(domain, **opts)
-      @domain = domain
+    def initialize(parent, **opts)
+      @parent = parent
+      @domain = parent.name
       define_attributes([:registrant, :registrar, :expires])
     end
 
@@ -21,10 +22,10 @@ module Xmon
 
     def check
       checker = fetch(@domain)
-      [Xmon.compare(@status, checker[:status]),
-        Xmon.compare(@registrant, checker[:registrant]),
-        Xmon.compare(@registrar, checker[:registrar]),
-        Xmon.compare(@expires, checker[:expiration][0, 10])]
+      [Xmon.compare(@status, checker[:status], self),
+        Xmon.compare(@registrant, checker[:registrant], self),
+        Xmon.compare(@registrar, checker[:registrar], self),
+        Xmon.compare(@expires, checker[:expiration][0, 10], self)]
     end
   end
 end

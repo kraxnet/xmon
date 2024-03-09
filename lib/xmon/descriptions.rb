@@ -1,5 +1,7 @@
 module Xmon
   class Description
+    attr_reader :parent
+
     def initialize
       @descriptions = []
     end
@@ -55,31 +57,42 @@ module Xmon
   end
 
   class DomainDescription < Description
+    attr_accessor :name
+
     def initialize(name, *)
       @name = name
     end
 
+    def friendly_name
+      @name
+    end
+
     def describe(*args, **kwarg)
       if args == [:rdap]
-        @description = Xmon::RDAP.new(@name)
+        @description = Xmon::RDAP.new(self)
       elsif args == [:dns]
-        @description = Xmon::DNS.new(@name)
+        @description = Xmon::DNS.new(self)
       end
       super
     end
   end
 
   class IPv4Description < Description
+    attr_accessor :address
     def initialize(address, *)
       @address = address
+    end
+
+    def friendly_name
+      @address
     end
 
     def describe(*, **kwargs)
       if kwargs[:type] == :tcp
         @description = if kwargs[:protocol] == :https
-          Xmon::SSL.new(@address, *, **kwargs)
+          Xmon::SSL.new(self, *, **kwargs)
         else
-          Xmon::TCP.new(@address, *, **kwargs)
+          Xmon::TCP.new(self, *, **kwargs)
         end
       elsif kwargs[:type] == :udp
         @description = Xmon::UDP.new(*, **kwargs)

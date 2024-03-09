@@ -3,8 +3,9 @@ require "nmap/xml"
 
 module Xmon
   class TCP < Description
-    def initialize(address, *args, **kwargs)
-      @address = address
+    def initialize(parent, *args, **kwargs)
+      @parent = parent
+      @address = parent.address
       @port = args[0]
       @protocol = kwargs[:protocol]
     end
@@ -43,7 +44,7 @@ module Xmon
 
     def check
       checker = fetch(@address, @port, :tcp)
-      [Xmon.compare(@status, checker[0][:state])]
+      [Xmon.compare(@status, checker[0][:state], self)]
     end
   end
 end

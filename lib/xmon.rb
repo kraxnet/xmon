@@ -15,11 +15,11 @@ require_relative "xmon/rdap"
 module Xmon
   class Error < StandardError; end
 
-  def self.compare(a, b)
+  def self.compare(a, b, info = "UNK")
     if a == b
-      [:ok, a]
+      [:ok, info, a].compact
     else
-      [:fail, a, b]
+      [:fail, info, a, b].compact
     end
   end
 
@@ -28,10 +28,15 @@ module Xmon
     results.each do |res|
       res.each do |r|
         if r.is_a?(Array)
-          if r[0] == :ok
-            puts "OK: #{r[1]}".colorize(:green)
+          friendly_name = if r[1].respond_to?(:parent)
+            [r[1].class.to_s.split("::").last, r[1].parent.friendly_name].join("/")
           else
-            puts "FAIL: #{r[1]} != #{r[2]}".colorize(:red)
+            r[1].class.to_s
+          end
+          if r[0] == :ok
+            puts "OK [#{friendly_name}]: #{r[2]}".colorize(:green)
+          else
+            puts "FAIL: [#{friendly_name}]: #{r[2]} != #{r[3]}".colorize(:red)
           end
         end
       end

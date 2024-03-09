@@ -2,8 +2,9 @@ require "dnsruby"
 
 module Xmon
   class DNS < Description
-    def initialize(domain)
-      @domain = domain
+    def initialize(parent)
+      @parent = parent
+      @domain = parent.name
       define_attributes([:nameservers, :records, :dnssec])
     end
 
@@ -17,10 +18,10 @@ module Xmon
     end
 
     def check
-      r = [Xmon.compare(@nameservers, fetch(@domain, "NS"))]
+      r = [Xmon.compare(@nameservers, fetch(@domain, "NS"), self)]
 
       @records.each do |record|
-        r << Xmon.compare(record[:value], fetch(record[:name] + "." + @domain, record[:type].to_s.upcase).sort.join(","))
+        r << Xmon.compare(record[:value], fetch(record[:name] + "." + @domain, record[:type].to_s.upcase).sort.join(","), self)
       end
       r
     end
