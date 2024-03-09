@@ -1,0 +1,30 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "bundler/setup"
+require "xmon"
+require "slop"
+require "irb"
+
+begin
+opts = Slop.parse do |o|
+  o.banner = "Usage: xmon [options]"
+  o.array '-d', '--definition', 'Definition file to load', required: true
+  o.on '-v', '--version' do
+    puts "1.1.1"
+    exit
+  end
+
+  o.on '-h', '--help' do
+    puts o
+    exit
+  end
+end
+rescue Slop::Error => e
+  puts e
+  exit
+end
+
+opts[:definition].each do |file|
+  Xmon.load(file).check
+end

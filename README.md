@@ -1,8 +1,8 @@
 # Xmon
 
-TODO: Delete this and the text below, and describe your gem
+Yet another network monitoring tool
 
-Welcome to your new gem! In this directory, you'll find the files you need to be able to package up your Ruby library into a gem. Put your Ruby code in the file `lib/xmon`. To experiment with that code, run `bin/console` for an interactive prompt.
+Use DSL to describe your network and services, run periodic checks and get notified when something changes.
 
 ## Installation
 
@@ -18,7 +18,13 @@ If bundler is not being used to manage dependencies, install the gem by executin
 
 ## Usage
 
-TODO: Write usage instructions here
+Create definition file like <examples/nic.rb>
+
+Run monitor 
+
+```
+    bin/xmon -d examples/nic.rb
+```
 
 ## Development
 
