@@ -39,6 +39,7 @@ Gem::Specification.new do |spec|
   spec.add_dependency "ruby-nmap"
   spec.add_dependency "activesupport", "~> 7.0.8"
   spec.add_dependency "colorize"
+  spec.add_dependency "net-ssh"
   spec.add_development_dependency "pry"
 
   # For more information and examples about making a new gem, check out our
