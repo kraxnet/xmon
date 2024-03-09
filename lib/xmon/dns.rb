@@ -19,7 +19,12 @@ module Xmon
 
     def check
       r = [Xmon.compare(@nameservers, fetch(@domain, "NS"), self)]
-
+      if @dnssec
+        res = Dnsruby::Recursor.new
+        res.dnssec = true
+        level = res.query(@domain).security_level
+        r << Xmon.compare(@dnssec, level=="SECURE" ? :valid : :invalid, self)
+      end
       @records.each do |record|
         r << Xmon.compare(record[:value], fetch(record[:name] + "." + @domain, record[:type].to_s.upcase).sort.join(","), self)
       end

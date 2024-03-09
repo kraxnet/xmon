@@ -1,3 +1,11 @@
+GIT
+  remote: https://github.com/kubicek/dnsruby.git
+  revision: 943bf854524ba1a085f1f78f87487d5967e21fa1
+  branch: patch-1
+  specs:
+    dnsruby (1.70.0)
+      simpleidn (~> 0.2.1)
+
 PATH
   remote: .
   specs:
@@ -23,8 +31,6 @@ GEM
     colorize (1.1.0)
     command_mapper (0.3.2)
     concurrent-ruby (1.2.3)
-    dnsruby (1.70.0)
-      simpleidn (~> 0.2.1)
     httparty (0.21.0)
       mini_mime (>= 1.0.0)
       multi_xml (>= 0.5.2)
@@ -101,6 +107,7 @@ PLATFORMS
   arm64-darwin-22
 
 DEPENDENCIES
+  dnsruby!
   pry
   rake (~> 13.0)
   standard (~> 1.3)
