@@ -2,6 +2,24 @@ module Xmon
   class Description
     attr_reader :parent, :results
 
+    def friendly_name
+      c = self.class.to_s.split("::").last
+      if @parent
+        [@parent.friendly_name, c].join("/")
+      else
+        c
+      end
+    end
+
+    def compare(name, a, b)
+      info = [friendly_name, name].join("/")
+      if a == b
+        [:ok, info, a].compact
+      else
+        [:fail, info, a, b].compact
+      end
+    end
+
     def initialize
       @descriptions = []
     end
@@ -54,7 +72,7 @@ module Xmon
         puts "#{d.class} #{@name}".colorize(:yellow)
         res = d.check
         @results << res
-
+        Xmon::Results.add(res)
         Xmon.print_results([res])
       }
     end
@@ -114,6 +132,11 @@ module Xmon
 
     def https(*, **, &)
       @description = Xmon::SSL.new(self, *, **)
+      describe(&)
+    end
+
+    def ssh(*, **, &)
+      @description = Xmon::SSH.new(self, *, **)
       describe(&)
     end
 

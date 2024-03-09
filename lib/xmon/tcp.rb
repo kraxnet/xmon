@@ -44,7 +44,7 @@ module Xmon
 
     def check
       checker = fetch(@address, @port, :tcp)
-      [Xmon.compare(@status, checker[0][:state], self)]
+      [compare(:status, @status, checker[0][:state])]
     end
   end
 end

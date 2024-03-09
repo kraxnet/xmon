@@ -19,7 +19,7 @@ module Xmon
     end
 
     def check
-      [Xmon.compare(@hostname, fetch(@address, "PTR"), self)]
+      [compare(:hostname, @hostname, fetch(@address, "PTR"))]
     end
   end
 end

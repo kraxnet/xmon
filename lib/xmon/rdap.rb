@@ -15,17 +15,17 @@ module Xmon
         registrant: response[:entities].detect { |a| a[:roles] == ["registrant"] }[:handle],
         registrar: response[:entities].detect { |a| a[:roles] == ["registrar"] }[:handle],
         nameservers: response[:nameservers].map { |a| a[:ldhName] }.sort,
-        expiration: response[:events].detect { |a| a[:eventAction] == "expiration" }[:eventDate],
+        expires: response[:events].detect { |a| a[:eventAction] == "expiration" }[:eventDate][0, 10],
         status: response[:status].map { |s| s.split(" ").join("_") }.sort.join("_").to_sym
       }
     end
 
     def check
       checker = fetch(@domain)
-      [Xmon.compare(@status, checker[:status], self),
-        Xmon.compare(@registrant, checker[:registrant], self),
-        Xmon.compare(@registrar, checker[:registrar], self),
-        Xmon.compare(@expires, checker[:expiration][0, 10], self)]
+      [compare(:status, @status, checker[:status]),
+        compare(:registrant, @registrant, checker[:registrant]),
+        compare(:registrar, @registrar, checker[:registrar]),
+        compare(:expires, @expires, checker[:expires])]
     end
   end
 end

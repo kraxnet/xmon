@@ -40,10 +40,10 @@ module Xmon
       puts "checking SSL for #{@address} #{@host} #{@port} #{@path}"
       current = fetch(@address, @host, @port, @path)
       r = []
-      r << Xmon.compare(@status_code, current[:status_code], self) if @status_code
-      r << Xmon.compare(@server, current.dig(:headers, "Server"), self) if @server
-      r << Xmon.compare(@cert_sn, current[:cert_sn], self) if @cert_sn
-      r << Xmon.compare(@location, current.dig(:headers, "Location"), self) if @location
+      r << compare(:status_code, @status_code, current[:status_code]) if @status_code
+      r << compare(:server, @server, current.dig(:headers, "Server")) if @server
+      r << compare(:cert_sn, @cert_sn, current[:cert_sn]) if @cert_sn
+      r << compare(:location, @location, current.dig(:headers, "Location")) if @location
       r
     end
   end

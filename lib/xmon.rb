@@ -17,11 +17,14 @@ require_relative "xmon/whois"
 module Xmon
   class Error < StandardError; end
 
-  def self.compare(a, b, info = "UNK")
-    if a == b
-      [:ok, info, a].compact
-    else
-      [:fail, info, a, b].compact
+  class Results
+    def self.add(result)
+      @results ||= []
+      @results << result
+    end
+
+    def self.get
+      @results.flatten(1).select { |a| a.is_a?(Array) }
     end
   end
 

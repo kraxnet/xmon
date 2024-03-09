@@ -21,10 +21,10 @@ module Xmon
 
     def check
       checker = fetch(@domain)
-      [Xmon.compare(@status, checker[:status].split(" ").first, self),
-        Xmon.compare(@registrant, checker[:registrant], self),
-        Xmon.compare(@registrar, checker[:registrar], self),
-        Xmon.compare(@expires, checker[:expiration][0, 10], self)]
+      [compare(:status, @status, checker[:status].split(" ").first),
+        compare(:registrant, @registrant, checker[:registrant]),
+        compare(:registrar, @registrar, checker[:registrar]),
+        compare(:expires, @expires, checker[:expiration][0, 10])]
     end
   end
 end
