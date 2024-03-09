@@ -12,6 +12,7 @@ require_relative "xmon/ssl"
 require_relative "xmon/dns"
 require_relative "xmon/rdap"
 require_relative "xmon/reverse_dns"
+require_relative "xmon/whois"
 
 module Xmon
   class Error < StandardError; end

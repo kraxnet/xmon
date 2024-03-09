@@ -80,6 +80,11 @@ module Xmon
       @description = Xmon::DNS.new(self)
       describe(&)
     end
+
+    def whois(&)
+      @description = Xmon::Whois.new(self)
+      describe(&)
+    end
   end
 
   class IPv4Description < Description
