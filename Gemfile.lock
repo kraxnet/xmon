@@ -6,15 +6,23 @@ GIT
     dnsruby (1.70.0)
       simpleidn (~> 0.2.1)
 
+GIT
+  remote: https://github.com/stulzer/cuid2.git
+  revision: cd7b965ae5959060323203655e78e70375f295e0
+  specs:
+    cuid2 (1.0.1)
+
 PATH
   remote: .
   specs:
     xmon (0.1.0)
       activesupport (~> 7.0.8)
       colorize
+      cuid2
       dnsruby
       httparty
       net-ssh
+      netaddr
       ruby-nmap
       slop
       whois-parser
@@ -45,6 +53,7 @@ GEM
     minitest (5.22.2)
     multi_xml (0.6.0)
     net-ssh (7.2.1)
+    netaddr (2.0.6)
     nokogiri (1.16.2-arm64-darwin)
       racc (~> 1.4)
     parallel (1.24.0)
@@ -107,8 +116,10 @@ GEM
 
 PLATFORMS
   arm64-darwin-22
+  arm64-darwin-23
 
 DEPENDENCIES
+  cuid2!
   dnsruby!
   pry
   rake (~> 13.0)

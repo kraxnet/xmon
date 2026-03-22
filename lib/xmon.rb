@@ -16,6 +16,12 @@ require_relative "xmon/whois"
 require_relative "xmon/ssh"
 require_relative "xmon/results"
 
+require_relative "xmon/inventory/page"
+require_relative "xmon/inventory/generator"
+require_relative "xmon/inventory/scanner"
+require_relative "xmon/inventory/stats"
+require_relative "xmon/inventory/validator"
+
 module Xmon
   class Error < StandardError; end
 
