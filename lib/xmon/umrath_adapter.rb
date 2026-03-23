@@ -4,6 +4,7 @@ require "net/http"
 require "json"
 require "uri"
 require "securerandom"
+require "time"
 
 # Umrath Event Store Adapter pro xmon/ezrecon
 #
