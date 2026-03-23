@@ -107,12 +107,16 @@ module Xmon
         resolver = Dnsruby::Resolver.new
         Page["hostname"].each do |page|
           puts "DNS #{page["hostname"]}"
+          previous_addresses = [page["address"]].flatten.compact
           begin
             addresses = resolver.query(page["hostname"], "A").answer
               .select { |a| a.respond_to?(:address) }
               .map { |a| a.address.to_s }.sort
             addresses = addresses.first if addresses.size == 1
             page.update(address: addresses).save unless addresses.empty?
+
+            # Forward to Umrath
+            @umrath&.hostname_resolved(page, previous_addresses)
           rescue Dnsruby::NXDomain
             puts "  NXDOMAIN"
             page.update(address: nil, status: :nxdomain).save
@@ -147,6 +151,9 @@ module Xmon
               expires: data[:events]&.detect { |a| a[:eventAction] == "expiration" }&.dig(:eventDate)&.slice(0, 10),
               status: data[:status]&.map { |s| s.split(" ").join("_") }&.sort&.join("_")&.to_sym
             ).save
+
+            # Forward to Umrath
+            @umrath&.domain_scanned(domain)
           rescue JSON::ParserError
             puts "  JSON parse error, skipping"
           rescue => e
@@ -175,6 +182,9 @@ module Xmon
           ssl = fetch_ssl(page["ip"])
           update_page_ssl(page, ssl, "p443_")
           page.save
+
+          # Forward to Umrath
+          @umrath&.address_scanned(page, nil)
         end
       end
 
@@ -188,18 +198,37 @@ module Xmon
             ssl = fetch_ssl(ip, page["hostname"])
             update_page_ssl(ps, ssl)
             ps.save
+
+            # Forward to Umrath
+            @umrath&.certificate_discovered(ps)
           end
         end
       end
 
       def self.run
         scanner = new
+
+        # Initialize Umrath adapter if configured
+        if ENV["UMRATH_URL"]
+          require_relative "../umrath_adapter"
+          scanner.instance_variable_set(:@umrath, XmonUmrath::Adapter.new(
+            base_url: ENV["UMRATH_URL"],
+            project_id: ENV.fetch("UMRATH_PROJECT_ID", "ezop")
+          ))
+          puts "  ✓ Umrath adapter (#{ENV["UMRATH_URL"]})"
+        end
+
         scanner.domains
         scanner.asns
         scanner.hostnames
         scanner.ptr_records
         scanner.ipv4_certificates
         scanner.hostname_certificates
+
+        if scanner.instance_variable_get(:@umrath)
+          stats = scanner.instance_variable_get(:@umrath).stats
+          puts "\nUmrath: #{stats[:forwarded]} events forwarded, #{stats[:errors]} errors"
+        end
       end
     end
   end
