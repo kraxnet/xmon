@@ -6,7 +6,16 @@ Use DSL to describe your network and services, run periodic checks, and get noti
 
 ## Architecture
 
-Xmon follows a **two-layer architecture** for Umrath integration:
+Xmon follows a **two-stream architecture** for Umrath integration — clean
+separation of raw observations (immutable source of truth) from derived
+analysis (deletable and rebuildable).
+
+### Stream Naming
+
+| Layer | Bucket | URL Pattern | Purpose |
+|-------|--------|-------------|---------|
+| Stream 1 (Scan) | `recon-scan` | `.../streams/recon-scan/{AggregateType}/{id}/events:append` | Immutable raw measurements |
+| Stream 2 (Eval) | `recon-eval` | `.../streams/recon-eval/{AggregateType}/{id}/events:append` | Derived analytics (rebuildable) |
 
 ### Layer 1 — Raw Scan (facts)
 
@@ -38,23 +47,91 @@ and applying them retroactively to the entire scan history.
 ### Data Flow
 
 ```
-┌─────────────┐     ┌──────────────────┐     ┌──────────────────────┐
-│  ezrecon    │     │  Layer 1: Scan   │     │  recon-scan bucket   │
-│  *.yml      │────▶│  (worker cmds)   │────▶│  raw observations    │
-│  inventory  │     │                  │     │  (append-only)       │
-└─────────────┘     └──────────────────┘     └──────────┬───────────┘
-                                                        │
-                                             ┌──────────▼───────────┐
-                                             │  Layer 2: Evaluate   │
-                                             │  (replayable)        │
-                                             └──────────┬───────────┘
-                                                        │
-                                             ┌──────────▼───────────┐
-                                             │  recon-eval bucket   │
-                                             │  derived insights    │
-                                             │  (deletable/replay)  │
-                                             └──────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  YAML Inventory (domains.yml, hostnames.yml, ip_ranges.yml) │
+│  → xmon Inventory::Generator → output/ frontmatter pages    │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+         ┌─────────────────▼──────────────────┐
+         │  xmon Inventory::Scanner            │
+         │  (DNS, RDAP, TLS, PTR)              │
+         │  updates frontmatter in output/     │
+         └─────────────────┬──────────────────┘
+                           │
+    ═══════════════════════╪═══════════════════════════════
+    STREAM 1 (immutable)   │
+                           ▼
+         ┌──────────────────────────────────────┐
+         │  EzreconWorkerHandlers (Layer 1)     │
+         │  emit_domain_results()               │
+         │  emit_hostname_results()             │
+         │  emit_tls_results()                  │
+         │                                      │
+         │  → bucket: "recon-scan"              │
+         │  → DomainScanResult, HostnameScan-   │
+         │    Result, TlsScanResult             │
+         └──────────────────┬───────────────────┘
+                            │
+    ════════════════════════╪═══════════════════════════════
+    STREAM 2 (rebuildable)  │
+                            ▼
+         ┌──────────────────────────────────────┐
+         │  EzreconEvaluator (Layer 2)          │
+         │  reads: "recon-scan"                 │
+         │  writes: "recon-eval"                │
+         │                                      │
+         │  evaluate_domains()                  │
+         │  evaluate_hostnames()                │
+         │  evaluate_tls_endpoints()            │
+         │  detect_shared_certificates()        │
+         │                                      │
+         │  → DomainNameserversChanged          │
+         │  → HostnameAddressChanged            │
+         │  → CertificateChanged                │
+         │  → EndpointBecameUnreachable         │
+         │  → SharedCertificateDetected         │
+         │  → ...                               │
+         └──────────────────────────────────────┘
 ```
+
+### Metadata Tagging
+
+Every event carries `metadata.layer` to distinguish its origin:
+
+```ruby
+# Layer 1 (scan)
+metadata: { source: "ezrecon", layer: "scan", version: "1.0" }
+
+# Layer 2 (eval)
+metadata: { source: "ezrecon-evaluator", layer: "eval", version: "1.0" }
+```
+
+### Checkpoint & Replay Mechanism
+
+The evaluator maintains a checkpoint file (`.eval_checkpoint.json`) tracking
+how many events per stream have been processed. On each run:
+
+1. **State is always rebuilt from the beginning** of the raw stream
+   (so the evaluator knows what the "previous" value was)
+2. **Derived events are only emitted for new observations**
+   (events past the checkpoint position)
+3. After processing, the checkpoint is updated
+
+For a full replay (`payload.replay = true`):
+
+1. The in-memory checkpoint is reset to empty
+2. All raw events are re-read from position 0
+3. State is rebuilt, all derived events are re-emitted
+4. This allows adding new detection rules (e.g. `SharedCertificateDetected`)
+   and applying them retroactively to the entire scan history
+
+### Legacy Adapter
+
+The older `umrath_adapter.rb` (used by `Scanner.run` when `UMRATH_URL` is set)
+writes directly to a single `recon` bucket. The new two-stream system in
+`umrath_worker_handlers.rb` + `umrath_evaluator.rb` uses separate `recon-scan`
+and `recon-eval` buckets. The legacy adapter is independent and may eventually
+be retired in favor of the worker-based flow.
 
 ## Commands
 
