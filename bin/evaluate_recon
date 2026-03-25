@@ -1,0 +1,76 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Standalone runner for the ezrecon evaluator (Layer 2).
+#
+# Reads raw scan events from recon-scan bucket, detects changes
+# between consecutive scans, and emits derived analytical events
+# to recon-eval bucket.
+#
+# Usage:
+#   cd projects/xmon
+#   UMRATH_URL=http://10.0.82.210:8080 ruby bin/evaluate_recon
+#
+# Options (env vars):
+#   UMRATH_URL            — Umrath server URL (required)
+#   UMRATH_PROJECT_ID     — project ID (default: ezop)
+#   EZRECON_OUTPUT_DIR    — path to ezrecon/output with .md pages
+#                           (default: ../ezrecon/output)
+#   REPLAY                — set to "1" to ignore checkpoint and replay all
+#                           (default: 1 — always replay for standalone usage)
+#
+
+require "bundler/setup"
+require "xmon"
+
+# ─── Configuration ─────────────────────────────────────────────────
+
+umrath_url = ENV.fetch("UMRATH_URL") { abort "UMRATH_URL not set" }
+project_id = ENV.fetch("UMRATH_PROJECT_ID", "ezop")
+output_dir = ENV.fetch("EZRECON_OUTPUT_DIR") {
+  File.expand_path("../../ezrecon/output", __dir__)
+}
+replay = %w[1 true yes].include?(ENV.fetch("REPLAY", "1"))
+
+# ─── Setup Inventory ──────────────────────────────────────────────
+
+unless File.directory?(output_dir)
+  abort "Output dir not found: #{output_dir}"
+end
+
+Xmon::Inventory::Page.output_dir = output_dir
+
+types = %w[domain hostname portscan ipv4]
+counts = types.map { |t| [t, Xmon::Inventory::Page[t].size] }.to_h
+
+puts "ezrecon evaluator (Layer 2)"
+puts "  Umrath:     #{umrath_url}"
+puts "  Project:    #{project_id}"
+puts "  Output dir: #{output_dir}"
+puts "  Replay:     #{replay}"
+puts "  Inventory:  #{counts.map { |k,v| "#{v} #{k}s" }.join(", ")}"
+puts
+
+# ─── Run Evaluator ─────────────────────────────────────────────────
+
+require_relative "../lib/xmon/umrath_evaluator"
+
+t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+evaluator = EzreconEvaluator.new(
+  base_url:        umrath_url,
+  project_id:      project_id,
+  checkpoint_path: File.join(output_dir, ".eval_checkpoint.json"),
+  replay:          replay,
+)
+
+stats = evaluator.run
+
+elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - t0
+
+puts "━━━ Results ━━━"
+stats.each do |k, v|
+  puts "  #{k}: #{v}"
+end
+puts
+puts "  Elapsed: #{elapsed.round(1)}s"
