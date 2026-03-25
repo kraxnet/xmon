@@ -1,0 +1,305 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Import historical scan snapshots from ezrecon/output git history
+# into Umrath recon-scan bucket.
+#
+# This script reads frontmatter from .md files at specific git commits,
+# and appends DomainScanResult, HostnameScanResult, and TlsScanResult
+# events to the recon-scan Umrath bucket.
+#
+# It is safe to run repeatedly (idempotent): event_ids are deterministic
+# (derived from entity_id + commit_hash), so re-importing after a DB wipe
+# produces identical events.
+#
+# After import, run `ezrecon.evaluate` with `payload.replay = true`
+# to generate the derived analytical events (Layer 2).
+#
+# Usage:
+#   cd projects/xmon
+#   UMRATH_URL=http://127.0.0.1:8080 ruby bin/import_historical
+#
+# Options (env vars):
+#   UMRATH_URL          — Umrath server URL (required)
+#   UMRATH_PROJECT_ID   — project ID (default: ezop)
+#   EZRECON_OUTPUT_DIR  — path to ezrecon/output git repo
+#                         (default: ../ezrecon/output)
+#   DRY_RUN             — set to "1" to print without sending (default: off)
+#
+
+require "net/http"
+require "json"
+require "uri"
+require "yaml"
+require "digest"
+require "time"
+
+# ─── Configuration ─────────────────────────────────────────────────
+
+UMRATH_URL  = ENV.fetch("UMRATH_URL") { abort "UMRATH_URL not set" }
+PROJECT_ID  = ENV.fetch("UMRATH_PROJECT_ID", "ezop")
+OUTPUT_REPO = ENV.fetch("EZRECON_OUTPUT_DIR") {
+  File.expand_path("../../ezrecon/output", __dir__)
+}
+DRY_RUN     = %w[1 true yes].include?(ENV["DRY_RUN"])
+SCAN_BUCKET = "recon-scan"
+
+# Snapshots to import (chronological order).
+# Each entry: git commit hash + timestamp for scanned_at.
+#
+# Snapshot 1: First complete scan (domains + NS + RDAP + hostnames + portscans)
+# Snapshot 2: State after ~10 days of refinement
+# Snapshot 3: Full rescan after ~2 year gap
+SNAPSHOTS = [
+  { commit: "f9edbf8", date: "2024-04-16T15:02:04+02:00", label: "initial scan 2024-04-16" },
+  { commit: "7eceb0e", date: "2024-04-26T14:54:08+02:00", label: "refined scan 2024-04-26" },
+  { commit: "19add52", date: "2026-03-22T15:44:53+01:00", label: "rescan 2026-03-22" },
+].freeze
+
+# ─── Helpers ───────────────────────────────────────────────────────
+
+def git_ls_md(commit, dir)
+  output = `git -C "#{OUTPUT_REPO}" ls-tree --name-only "#{commit}" "#{dir}/" 2>/dev/null`
+  output.lines.map(&:chomp).select { |f| f.end_with?(".md") }
+end
+
+def git_show(commit, path)
+  `git -C "#{OUTPUT_REPO}" show "#{commit}:#{path}" 2>/dev/null`
+end
+
+def parse_frontmatter(raw)
+  return nil if raw.nil? || raw.empty?
+  return nil unless raw =~ /\A---\s*\n(.*?\n)---\s*$/m
+
+  YAML.safe_load($1, permitted_classes: [Symbol, Date, Time])
+rescue Psych::SyntaxError, Psych::DisallowedClass => e
+  # Retry with unsafe load for Ruby symbol values (:ok, :active, etc.)
+  begin
+    YAML.load($1)
+  rescue => e2
+    warn "  YAML parse error: #{e2.message}"
+    nil
+  end
+end
+
+# Deterministic event_id: same entity + same commit → same UUID-shaped id.
+# This makes the import idempotent.
+def deterministic_event_id(entity_id, commit, event_type)
+  hash = Digest::SHA256.hexdigest("#{entity_id}:#{commit}:#{event_type}")
+  # Format as UUID v5-style: 8-4-4-4-12
+  [hash[0..7], hash[8..11], hash[12..15], hash[16..19], hash[20..31]].join("-")
+end
+
+$stats = { appended: 0, skipped: 0, errors: 0 }
+
+def append_event(aggregate_type, aggregate_id, event_type, payload, commit:, scanned_at:)
+  event_id = deterministic_event_id(aggregate_id, commit, event_type)
+
+  if DRY_RUN
+    puts "  [DRY] #{event_type} → #{SCAN_BUCKET}/#{aggregate_type}/#{aggregate_id}"
+    $stats[:appended] += 1
+    return
+  end
+
+  uri = URI("#{UMRATH_URL}/v1/projects/#{PROJECT_ID}/streams/#{SCAN_BUCKET}/#{aggregate_type}/#{aggregate_id}/events:append")
+
+  body = {
+    events: [{
+      event_id:   event_id,
+      event_type: event_type,
+      payload:    payload,
+      metadata: {
+        source:  "ezrecon-import",
+        layer:   "scan",
+        version: "1.0",
+        import_commit: commit,
+      },
+    }],
+  }
+
+  req = Net::HTTP::Post.new(uri)
+  req["Content-Type"] = "application/json"
+  req["X-Caller"]     = "ezrecon-import"
+  req.body            = JSON.generate(body)
+
+  http = Net::HTTP.new(uri.host, uri.port)
+  http.open_timeout = 5
+  http.read_timeout = 10
+  http.use_ssl      = uri.scheme == "https"
+
+  response = http.request(req)
+  if response.is_a?(Net::HTTPSuccess)
+    $stats[:appended] += 1
+  else
+    # 409 Conflict = event already exists (idempotent, skip)
+    if response.code == "409"
+      $stats[:skipped] += 1
+    else
+      warn "  ERROR #{response.code}: #{response.body}"
+      $stats[:errors] += 1
+    end
+  end
+rescue => e
+  warn "  ERROR: #{e.message}"
+  $stats[:errors] += 1
+end
+
+# ─── Domain Import ─────────────────────────────────────────────────
+
+def import_domains(commit, scanned_at)
+  files = git_ls_md(commit, "domains")
+  puts "  domains: #{files.size} files"
+
+  files.each do |path|
+    raw = git_show(commit, path)
+    fm = parse_frontmatter(raw)
+    next unless fm && fm["_type"] == "domain" && fm["name"]
+
+    # Skip if no scan data (just generated, no NS/RDAP yet)
+    next unless fm["nameservers"]
+
+    append_event("DomainScan", fm["id"], "DomainScanResult", {
+      "domain_name" => fm["name"],
+      "nameservers" => Array(fm["nameservers"]),
+      "registrant"  => fm["registrant"],
+      "registrar"   => fm["registrar"],
+      "expires"     => fm["expires"]&.to_s,
+      "rdap_status" => fm["status"]&.to_s,
+      "scanned_at"  => scanned_at,
+    }.compact, commit: commit, scanned_at: scanned_at)
+  end
+end
+
+# ─── Hostname Import ───────────────────────────────────────────────
+
+def import_hostnames(commit, scanned_at)
+  files = git_ls_md(commit, "hostnames")
+  puts "  hostnames: #{files.size} files"
+
+  files.each do |path|
+    raw = git_show(commit, path)
+    fm = parse_frontmatter(raw)
+    next unless fm && fm["_type"] == "hostname" && fm["hostname"]
+
+    addresses = Array(fm["address"]).compact
+    dns_status = fm["status"]&.to_s
+    dns_status ||= addresses.any? ? "ok" : "unknown"
+
+    append_event("HostnameScan", fm["id"], "HostnameScanResult", {
+      "hostname"   => fm["hostname"],
+      "addresses"  => addresses,
+      "dns_status" => dns_status,
+      "scanned_at" => scanned_at,
+    }.compact, commit: commit, scanned_at: scanned_at)
+  end
+end
+
+# ─── TLS/Portscan Import ──────────────────────────────────────────
+
+def import_portscans(commit, scanned_at)
+  files = git_ls_md(commit, "portscans")
+  puts "  portscans: #{files.size} files"
+
+  files.each do |path|
+    raw = git_show(commit, path)
+    fm = parse_frontmatter(raw)
+    next unless fm && fm["_type"] == "portscan"
+
+    endpoint_id = fm["id"] || File.basename(path, ".md")
+    next unless endpoint_id
+
+    append_event("TlsScan", endpoint_id, "TlsScanResult", {
+      "ip"             => fm["ip"],
+      "port"           => fm["port"] || 443,
+      "hostname"       => fm["hostname"],
+      "cert_serial"    => fm["cert_sn"],
+      "cert_subject"   => fm["name"],
+      "cert_issuer"    => fm["issuer"],
+      "cert_not_after" => fm["cert_not_after"]&.to_s,
+      "altnames"       => Array(fm["altnames"]),
+      "server"         => fm["server"],
+      "status_code"    => fm["status_code"],
+      "tls_status"     => fm["status"]&.to_s || "unknown",
+      "scanned_at"     => scanned_at,
+    }.compact, commit: commit, scanned_at: scanned_at)
+  end
+end
+
+# ─── IPv4 TLS Import ──────────────────────────────────────────────
+
+def import_ipv4_tls(commit, scanned_at)
+  files = git_ls_md(commit, "ipv4s")
+  count = 0
+
+  files.each do |path|
+    raw = git_show(commit, path)
+    fm = parse_frontmatter(raw)
+    next unless fm && fm["_type"] == "ipv4" && fm["p443_status"]
+
+    file_id = fm["id"] || File.basename(path, ".md")
+    endpoint_id = "ipv4-#{file_id}-443"
+
+    append_event("TlsScan", endpoint_id, "TlsScanResult", {
+      "ip"             => fm["ip"],
+      "port"           => 443,
+      "cert_serial"    => fm["p443_cert_sn"],
+      "cert_subject"   => fm["p443_name"],
+      "cert_issuer"    => fm["p443_issuer"],
+      "cert_not_after" => fm["p443_cert_not_after"]&.to_s,
+      "tls_status"     => fm["p443_status"]&.to_s || "unknown",
+      "scanned_at"     => scanned_at,
+    }.compact, commit: commit, scanned_at: scanned_at)
+    count += 1
+  end
+
+  puts "  ipv4 tls: #{count} endpoints (from #{files.size} ipv4 pages)"
+end
+
+# ─── Main ──────────────────────────────────────────────────────────
+
+puts "ezrecon historical import"
+puts "  Umrath:    #{UMRATH_URL}"
+puts "  Project:   #{PROJECT_ID}"
+puts "  Repo:      #{OUTPUT_REPO}"
+puts "  Bucket:    #{SCAN_BUCKET}"
+puts "  Snapshots: #{SNAPSHOTS.size}"
+puts "  Dry run:   #{DRY_RUN}"
+puts
+
+unless File.directory?(OUTPUT_REPO)
+  abort "Output repo not found: #{OUTPUT_REPO}"
+end
+
+# Verify git repo
+unless system("git -C '#{OUTPUT_REPO}' rev-parse --git-dir > /dev/null 2>&1")
+  abort "Not a git repo: #{OUTPUT_REPO}"
+end
+
+SNAPSHOTS.each do |snapshot|
+  commit     = snapshot[:commit]
+  scanned_at = snapshot[:date]
+  label      = snapshot[:label]
+
+  puts "━━━ Snapshot: #{label} (#{commit}) ━━━"
+
+  # Verify commit exists
+  unless system("git -C '#{OUTPUT_REPO}' cat-file -e '#{commit}' 2>/dev/null")
+    warn "  SKIP: commit #{commit} not found in repo"
+    next
+  end
+
+  import_domains(commit, scanned_at)
+  import_hostnames(commit, scanned_at)
+  import_portscans(commit, scanned_at)
+  import_ipv4_tls(commit, scanned_at)
+
+  puts
+end
+
+puts "━━━ Summary ━━━"
+puts "  Appended: #{$stats[:appended]}"
+puts "  Skipped:  #{$stats[:skipped]} (already exist)"
+puts "  Errors:   #{$stats[:errors]}"
+puts
+puts "Next step: run ezrecon.evaluate with payload.replay=true"
+puts "to generate derived analytical events from the imported scans."
