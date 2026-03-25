@@ -57,9 +57,14 @@ module Xmon
           .select { |a| a.oid == "subjectAltName" }
           .flat_map { |a| a.value.split(", ") }
           .map { |a| a.split("DNS:")[1] } - [cn]
+        issuer_cn = cert.issuer.to_s.split("/CN=")[1]
+        issuer_o  = cert.issuer.to_a.find { |a| a[0] == "O" }&.dig(1)
 
         {
           cert_sn: cert.serial.to_s(16),
+          cert_not_after: cert.not_after.utc.iso8601,
+          cert_not_before: cert.not_before.utc.iso8601,
+          issuer: issuer_o || issuer_cn,
           status_code: status_code.to_i,
           name: cn,
           altnames: altnames,
@@ -168,6 +173,9 @@ module Xmon
         else
           page.update("#{prefix}status" => :ok)
           page.update("#{prefix}cert_sn" => ssl[:cert_sn])
+          page.update("#{prefix}cert_not_after" => ssl[:cert_not_after])
+          page.update("#{prefix}cert_not_before" => ssl[:cert_not_before])
+          page.update("#{prefix}issuer" => ssl[:issuer])
           page.update("#{prefix}name" => ssl[:name])
           page.update("#{prefix}status_code" => ssl[:status_code])
           page.update("#{prefix}server" => ssl.dig(:headers, "Server"))
